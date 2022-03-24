@@ -58,26 +58,24 @@
 
 (defconst chep-video-images-path "/tmp/chep-video.d")
 
-(defvar chep-video-mode-map nil
+(defvar chep-video-mode-map
+  (let ((map (make-sparse-keymap)))
+    (prog1 map
+      (suppress-keymap map)
+      (define-key chep-video-mode-map (kbd "SPC") 'chep-video-playPause)
+      (define-key chep-video-mode-map (kbd "<right>") 'chep-video-forward)
+      (define-key chep-video-mode-map (kbd "<left>") 'chep-video-backward)
+      (define-key chep-video-mode-map (kbd "<up>") 'chep-video-forward-long)
+      (define-key chep-video-mode-map (kbd "<down>") 'chep-video-backward-long)
+      (define-key chep-video-mode-map (kbd "<next>") 'chep-video-backward-long-long)
+      (define-key chep-video-mode-map (kbd "<prior>") 'chep-video-forward-long-long)
+      (define-key chep-video-mode-map "q" 'chep-video-stop-and-bury)))
   "Local keymap for chep-video.")
-
-(unless chep-video-mode-map
-  (setq chep-video-mode-map (make-sparse-keymap))
-    ;; Video operation
-  (define-key chep-video-mode-map (kbd "SPC") 'chep-video-playPause)
-  (define-key chep-video-mode-map (kbd "<right>") 'chep-video-forward)
-  (define-key chep-video-mode-map (kbd "<left>") 'chep-video-backward)
-  (define-key chep-video-mode-map (kbd "<up>") 'chep-video-forward-long)
-  (define-key chep-video-mode-map (kbd "<down>") 'chep-video-backward-long)
-  (define-key chep-video-mode-map (kbd "<next>") 'chep-video-backward-long-long)
-  (define-key chep-video-mode-map (kbd "<prior>") 'chep-video-forward-long-long)
-  (define-key chep-video-mode-map "q" 'chep-video-stop))
-
 
 (defun chep-video-mode ()
   (kill-all-local-variables)
   (setq major-mode 'chep-video-mode
-		mode-name "VIDEO")
+        mode-name "VIDEO")
   (use-local-map chep-video-mode-map))
 
 (defun chep-video-play (fichier)
@@ -85,7 +83,7 @@
 
   ;;stop if already running
   (when chep-video-process
-	  (chep-video-stop))
+    (chep-video-stop))
 
   ;;creating buffers
   (setq chep-video-process-buffer (get-buffer-create "*video-process*"))
@@ -96,103 +94,98 @@
 
   ;;temp directory:
   (when (file-exists-p chep-video-images-path)
-	(if (file-directory-p chep-video-images-path)
-		(delete-directory chep-video-images-path t)
-	  (delete-file chep-video-images-path)))
+    (if (file-directory-p chep-video-images-path)
+        (delete-directory chep-video-images-path t)
+      (delete-file chep-video-images-path)))
   (make-directory chep-video-images-path t)
 
 
   ;;creating mplayer process and refresh timer
-  (let (edges
-		largeur)
-	(setq edges (window-pixel-edges)
-		  largeur (-(nth 2 edges) (nth 0 edges)))
-	(setq chep-video-process (start-process "video-process"
-											chep-video-process-buffer
-											"mplayer" "-slave"
-											"-vo" (concat "png:outdir=" chep-video-images-path)
-											"-zoom" "-xy" (int-to-string largeur)
-											"-osdlevel" "1" "-quiet"
-											(expand-file-name fichier))
-		chep-video-frame 1
-		chep-video-timer (run-at-time 0 0.01
-									  'chep-video-render-img))))
+  (setq chep-video-process (start-process "video-process"
+                                          chep-video-process-buffer
+                                          "mplayer" "-slave"
+                                          "-vo" (concat "png:outdir=" chep-video-images-path)
+                                          "-zoom" "-xy" (int-to-string (window-pixel-width))
+                                          "-osdlevel" "1" "-quiet"
+                                          fichier)
+        chep-video-frame 1
+        chep-video-timer (run-at-time 0 0.01
+                                      'chep-video-render-img)))
 
 (defun chep-video-render-img ()
   (if (string= (process-status chep-video-process) "run")
-	  (let ((fichier (format "%s/%08d.png"
-							 chep-video-images-path
-							 chep-video-frame))
-			(precedent (format "%s/%08d.png"
-							   chep-video-images-path
-							   (1- chep-video-frame)))
-			(suivante (format "%s/%08d.png"
-							  chep-video-images-path
-							  (1+ chep-video-frame))))
-		(when (and (file-exists-p fichier)
-				   (file-exists-p suivante))
-		  (let ((buffer (current-buffer)))
-			(set-buffer chep-video-buffer)
-			(when (not (= chep-video-frame 1))
-			  (delete-file precedent))
-			(erase-buffer)
-			(insert-image (create-image fichier))
-			(setq chep-video-frame (1+ chep-video-frame))
-			(set-buffer buffer))))
-	(chep-video-stop)))
+      (let ((fichier (format "%s/%08d.png"
+                             chep-video-images-path
+                             chep-video-frame))
+            (precedent (format "%s/%08d.png"
+                               chep-video-images-path
+                               (1- chep-video-frame)))
+            (suivante (format "%s/%08d.png"
+                              chep-video-images-path
+                              (1+ chep-video-frame))))
+        (when (and (file-exists-p fichier)
+                   (file-exists-p suivante))
+          (let ((buffer (current-buffer)))
+            (set-buffer chep-video-buffer)
+            (when (not (= chep-video-frame 1))
+              (delete-file precedent))
+            (erase-buffer)
+            (insert-image (create-image fichier))
+            (setq chep-video-frame (1+ chep-video-frame))
+            (set-buffer buffer))))
+    (chep-video-stop)))
 
 (defun chep-video-stop ()
   (interactive)
   (ignore-errors
-	(cancel-timer chep-video-timer)
-	(interrupt-process chep-video-process)
-	(stop-process chep-video-process)
-	(setq chep-video-timer nil
-		  chep-video-process nil)
-	(delete-file (format "%s/%08d.png"
-						 chep-video-images-path
-						 (1- chep-video-frame)))))
+    (cancel-timer chep-video-timer)
+    (interrupt-process chep-video-process)
+    (stop-process chep-video-process)
+    (setq chep-video-timer nil
+          chep-video-process nil)
+    (delete-file (format "%s/%08d.png"
+                         chep-video-images-path
+                         (1- chep-video-frame)))))
+
+(defun chep-video-stop-and-bury ()
+  (interactive)
+  (chep-video-stop)
+  (bury-buffer))
 
 (defun chep-video-playPause ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "pause\n")))
+    (process-send-string chep-video-process "pause\n")))
 
 (defun chep-video-forward ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "seek 10\n"))
-)
+    (process-send-string chep-video-process "seek 10\n")))
 
 (defun chep-video-backward ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "seek -10\n"))
-)
+    (process-send-string chep-video-process "seek -10\n")))
 
 (defun chep-video-forward-long ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "seek 60\n"))
-)
+    (process-send-string chep-video-process "seek 60\n")))
 
 (defun chep-video-backward-long ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "seek -60\n"))
-)
+    (process-send-string chep-video-process "seek -60\n")))
 
 
 (defun chep-video-forward-long-long ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "seek 600\n"))
-)
+    (process-send-string chep-video-process "seek 600\n")))
 
 (defun chep-video-backward-long-long ()
   (interactive)
   (when chep-video-process
-	(process-send-string chep-video-process "seek -600\n"))
-)
+    (process-send-string chep-video-process "seek -600\n")))
 
 (provide 'chep-video)
